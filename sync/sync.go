@@ -3,6 +3,7 @@ package sync
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"sort"
 
 	"github.com/go-kit/kit/log"
 	"github.com/pkg/errors"
@@ -15,9 +16,14 @@ import (
 // Checksum generates a unique identifier for all apply actions in the stack
 func getStackChecksum(repoResources map[string]resource.Resource) string {
 	checksum := sha1.New()
-	// TODO: deterministically sort repo resources
-	for _, resource := range repoResources {
-		checksum.Write(resource.Bytes())
+
+	sortedKeys := make([]string, 0, len(repoResources))
+	for resourceID := range repoResources {
+		sortedKeys = append(sortedKeys, resourceID)
+	}
+	sort.Strings(sortedKeys)
+	for resourceIDIndex := range sortedKeys {
+		checksum.Write(repoResources[sortedKeys[resourceIDIndex]].Bytes())
 	}
 	return hex.EncodeToString(checksum.Sum(nil))
 }
