@@ -290,7 +290,7 @@ func TestDaemon_ListImagesWithOptions(t *testing.T) {
 		{
 			name: "Override container field selection",
 			opts: v10.ListImagesOptions{
-				Spec: specAll,
+				Spec:                    specAll,
 				OverrideContainerFields: []string{"Name", "Current", "NewAvailableImagesCount"},
 			},
 			expectedImages: []v6.ImageStatus{
@@ -320,7 +320,7 @@ func TestDaemon_ListImagesWithOptions(t *testing.T) {
 		{
 			name: "Override container field selection with invalid field",
 			opts: v10.ListImagesOptions{
-				Spec: specAll,
+				Spec:                    specAll,
 				OverrideContainerFields: []string{"InvalidField"},
 			},
 			expectedImages: nil,
@@ -359,7 +359,7 @@ func TestDaemon_NotifyChange(t *testing.T) {
 	var syncCalled int
 	var syncDef *cluster.SyncDef
 	var syncMu sync.Mutex
-	mockK8s.SyncFunc = func(def cluster.SyncDef) error {
+	mockK8s.SyncFunc = func(def cluster.SyncDef, l map[string]policy.Update, p map[string]policy.Update) error {
 		syncMu.Lock()
 		syncCalled++
 		syncDef = &def
@@ -660,7 +660,7 @@ func mockDaemon(t *testing.T) (*Daemon, func(), func(), *cluster.Mock, *mockEven
 				singleService,
 			}, nil
 		}
-		k8s.SyncFunc = func(def cluster.SyncDef) error { return nil }
+		k8s.SyncFunc = func(def cluster.SyncDef, l map[string]policy.Update, p map[string]policy.Update) error { return nil }
 		k8s.UpdatePoliciesFunc = (&kubernetes.Manifests{}).UpdatePolicies
 		k8s.UpdateImageFunc = (&kubernetes.Manifests{}).UpdateImage
 	}
