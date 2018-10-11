@@ -4,7 +4,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"sort"
 
 	"github.com/go-kit/kit/log"
@@ -52,13 +51,6 @@ func Sync(logger log.Logger, m cluster.Manifests, repoResources map[string]resou
 	// no-op.
 	sync := cluster.SyncDef{}
 
-	var stackLogger log.Logger
-	{
-		stackLogger = log.NewLogfmtLogger(os.Stderr)
-		stackLogger = log.With(stackLogger, "ts", log.DefaultTimestampUTC)
-		stackLogger = log.With(stackLogger, "component", "stack-tracking")
-	}
-
 	var stackName, stackChecksum string
 	resourceLabels := map[string]policy.Update{}
 	resourcePolicyUpdates := map[string]policy.Update{}
@@ -66,10 +58,10 @@ func Sync(logger log.Logger, m cluster.Manifests, repoResources map[string]resou
 		stackName = "default" // TODO: multiple stack support
 		stackChecksum = getStackChecksum(repoResources)
 
-		stackLogger.Log("stack", stackName, "checksum", stackChecksum)
+		fmt.Printf("[stack-tracking] stack=%s, checksum=%s\n", stackName, stackChecksum)
 
 		for id := range repoResources {
-			stackLogger.Log("resource", id, "applying checksum", stackChecksum)
+			fmt.Printf("[stack-tracking] resource=%s, applying checksum=%s\n", id, stackChecksum)
 			resourceLabels[id] = policy.Update{
 				Add: policy.Set{"stack": stackName},
 			}
@@ -96,7 +88,7 @@ func Sync(logger log.Logger, m cluster.Manifests, repoResources map[string]resou
 		return err
 	}
 	if tracks {
-		stackLogger.Log("scanning cluster stack for orphaned resources", stackName)
+		fmt.Printf("[stack-tracking] scanning stack (%s) for orphaned resources\n", stackName)
 		clusterResourceBytes, err := clus.ExportByLabel(fmt.Sprintf("%s%s", kresource.PolicyPrefix, "stack"), stackName)
 		if err != nil {
 			return errors.Wrap(err, "exporting resource defs from cluster post-sync")
@@ -110,12 +102,12 @@ func Sync(logger log.Logger, m cluster.Manifests, repoResources map[string]resou
 			if res.Policy().Has(policy.StackChecksum) {
 				val, _ := res.Policy().Get(policy.StackChecksum)
 				if val != stackChecksum {
-					stackLogger.Log("cluster resource", resourceID, "invalid checksum", val)
+					fmt.Printf("[stack-tracking] cluster resource=%s, invalid checksum=%s\n", resourceID, val)
 				} else {
-					stackLogger.Log("cluster resource ok", resourceID)
+					fmt.Printf("[stack-tracking] cluster resource ok: %s\n", resourceID)
 				}
 			} else {
-				stackLogger.Log("cluster resource", resourceID, "missing policy", policy.StackChecksum)
+				fmt.Printf("warning: [stack-tracking] cluster resource=%s, missing policy=%s\n", resourceID, policy.StackChecksum)
 			}
 		}
 	}
