@@ -214,42 +214,37 @@ func (c *Cluster) AllControllers(namespace string) (res []cluster.Controller, er
 func applyMetadata(res resource.Resource, resourceLabels map[string]policy.Update, resourcePolicyUpdates map[string]policy.Update) ([]byte, error) {
 	id := res.ResourceID().String()
 
-	definition := make(map[interface{}]interface{})
+	definition := map[interface{}]interface{}{}
 	if err := yaml.Unmarshal(res.Bytes(), &definition); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("failed to parse yaml from %s", res.Source()))
 	}
 
+	mixin := map[string]interface{}{}
+
 	if update, ok := resourceLabels[id]; ok {
-		mixin := make(map[interface{}]interface{})
-		var mixinBuffer bytes.Buffer
-		mixinBuffer.WriteString("metadata:\n  labels:\n")
+		mixinLabels := map[string]string{}
 		for key, value := range update.Add.ToStringMap() {
-			mixinBuffer.WriteString(fmt.Sprintf("    %s: %s\n", fmt.Sprintf("%s%s", kresource.PolicyPrefix, key), value))
+			mixinLabels[fmt.Sprintf("%s%s", kresource.PolicyPrefix, key)] = value
 		}
-		if err := yaml.Unmarshal(mixinBuffer.Bytes(), &mixin); err != nil {
-			return nil, errors.Wrap(err, "failed to parse yaml for mixin")
-		}
-		mergo.Merge(&definition, mixin)
+		mixin["labels"] = mixinLabels
 	}
 
 	if update, ok := resourcePolicyUpdates[id]; ok {
-		mixin := make(map[interface{}]interface{})
-		var mixinBuffer bytes.Buffer
-		mixinBuffer.WriteString("metadata:\n  annotations:\n")
+		mixinAnnotations := map[string]string{}
 		for key, value := range update.Add.ToStringMap() {
-			mixinBuffer.WriteString(fmt.Sprintf("    %s: %s\n", fmt.Sprintf("%s%s", kresource.PolicyPrefix, key), value))
+			mixinAnnotations[fmt.Sprintf("%s%s", kresource.PolicyPrefix, key)] = value
 		}
-		if err := yaml.Unmarshal(mixinBuffer.Bytes(), &mixin); err != nil {
-			return nil, errors.Wrap(err, "failed to parse yaml for mixin")
-		}
-		mergo.Merge(&definition, mixin)
+		mixin["annotations"] = mixinAnnotations
 	}
+
+	mergo.Merge(&definition, map[interface{}]interface{}{
+		"metadata": mixin,
+	})
 
 	bytes, err := yaml.Marshal(definition)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to serialize yaml after applying metadata")
 	}
-
 	return bytes, nil
 }
 
