@@ -187,9 +187,7 @@ func (c *Cluster) AllControllers(namespace string) (res []cluster.Controller, er
 	return allControllers, nil
 }
 
-func applyMetadata(res resource.Resource, resourceLabels map[string]policy.Update, resourcePolicyUpdates map[string]policy.Update) ([]byte, error) {
-	id := res.ResourceID().String()
-
+func applyMetadata(res resource.Resource, stack, checksum string) ([]byte, error) {
 	definition := map[interface{}]interface{}{}
 	if err := yaml.Unmarshal(res.Bytes(), &definition); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("failed to parse yaml from %s", res.Source()))
@@ -197,19 +195,15 @@ func applyMetadata(res resource.Resource, resourceLabels map[string]policy.Updat
 
 	mixin := map[string]interface{}{}
 
-	if update, ok := resourceLabels[id]; ok {
+	if stack != "" {
 		mixinLabels := map[string]string{}
-		for key, value := range update.Add.ToStringMap() {
-			mixinLabels[fmt.Sprintf("%s%s", kresource.PolicyPrefix, key)] = value
-		}
+		mixinLabels[fmt.Sprintf("%s%s", kresource.PolicyPrefix, policy.Stack)] = stack
 		mixin["labels"] = mixinLabels
 	}
 
-	if update, ok := resourcePolicyUpdates[id]; ok {
+	if checksum != "" {
 		mixinAnnotations := map[string]string{}
-		for key, value := range update.Add.ToStringMap() {
-			mixinAnnotations[fmt.Sprintf("%s%s", kresource.PolicyPrefix, key)] = value
-		}
+		mixinAnnotations[fmt.Sprintf("%s%s", kresource.PolicyPrefix, policy.StackChecksum)] = checksum
 		mixin["annotations"] = mixinAnnotations
 	}
 
@@ -226,7 +220,7 @@ func applyMetadata(res resource.Resource, resourceLabels map[string]policy.Updat
 
 // Sync performs the given actions on resources. Operations are
 // asynchronous, but serialised.
-func (c *Cluster) Sync(spec cluster.SyncDef, resourceLabels map[string]policy.Update, resourcePolicyUpdates map[string]policy.Update) error {
+func (c *Cluster) Sync(spec cluster.SyncDef, stacks map[string]string, checksums map[string]string) error {
 	logger := log.With(c.logger, "method", "Sync")
 
 	cs := makeChangeSet()
@@ -244,7 +238,8 @@ func (c *Cluster) Sync(spec cluster.SyncDef, resourceLabels map[string]policy.Up
 				continue
 			}
 
-			resBytes, err := applyMetadata(stage.res, resourceLabels, resourcePolicyUpdates)
+			id := stage.res.ResourceID().String()
+			resBytes, err := applyMetadata(stage.res, stacks[id], checksums[id])
 			if err == nil {
 				cs.stage(stage.cmd, stage.res, resBytes)
 			} else {
@@ -262,9 +257,44 @@ func (c *Cluster) Sync(spec cluster.SyncDef, resourceLabels map[string]policy.Up
 	}
 	c.muSyncErrors.RUnlock()
 
-	// If `nil`, errs is a cluster.SyncError(nil) rather than error(nil)
-	if errs == nil {
-		return nil
+	// FIXME(michael): pass this through in the SyncDef maybe?
+	tracks := true
+	if tracks {
+		orphanedResources := makeChangeSet()
+
+		fmt.Println("[stack-tracking] scanning for orphaned resources")
+		clusterResourceBytes, err := c.exportByLabel(fmt.Sprintf("%s%s", kresource.PolicyPrefix, policy.Stack))
+		if err != nil {
+			return errors.Wrap(err, "exporting resource defs from cluster for garbage collection")
+		}
+		clusterResources, err := kresource.ParseMultidoc(clusterResourceBytes, "exported")
+		if err != nil {
+			return errors.Wrap(err, "parsing exported resources post-sync")
+		}
+
+		for resourceID, res := range clusterResources {
+			checksum := checksums[resourceID]
+			if res.Policy().Has(policy.StackChecksum) {
+				val, _ := res.Policy().Get(policy.StackChecksum)
+				if val != checksum {
+					fmt.Printf("[stack-tracking] cluster resource=%s, invalid checksum=%s\n", resourceID, val)
+					orphanedResources.stage("delete", res, res.Bytes())
+				} else {
+					fmt.Printf("[stack-tracking] cluster resource ok: %s\n", resourceID)
+				}
+			} else {
+				fmt.Printf("warning: [stack-tracking] cluster resource=%s, missing policy=%s\n", resourceID, policy.StackChecksum)
+			}
+		}
+
+		if deleteErrs := c.applier.apply(logger, orphanedResources, nil); len(deleteErrs) > 0 {
+			errs = append(errs, deleteErrs...)
+		}
+	}
+
+	// If `nil`, errs is a cluster.SyncError(nil) rather than error(nil), so it cannot be returned directly.
+	if errs != nil {
+		return errs
 	}
 
 	// It is expected that Cluster.Sync is invoked with *all* resources.
@@ -334,7 +364,9 @@ func contains(a []string, x string) bool {
 	return false
 }
 
-func (c *Cluster) ExportByLabel(labelName string, labelValue string) ([]byte, error) {
+// exportByLabel collates all the resources that have a particular
+// label (regardless of the value).
+func (c *Cluster) exportByLabel(labelName string) ([]byte, error) {
 	var config bytes.Buffer
 
 	resources, err := c.client.coreClient.Discovery().ServerResources()
@@ -367,7 +399,7 @@ func (c *Cluster) ExportByLabel(labelName string, labelValue string) ([]byte, er
 				Resource: apiResource.Name,
 			})
 			data, err := resourceClient.List(meta_v1.ListOptions{
-				LabelSelector: fmt.Sprintf("%s=%s", labelName, labelValue),
+				LabelSelector: labelName, // exists <<labelName>>
 			})
 			if err != nil {
 				return nil, err
@@ -382,6 +414,7 @@ func (c *Cluster) ExportByLabel(labelName string, labelValue string) ([]byte, er
 				if itemDesc == "v1:ComponentStatus" || itemDesc == "v1:Endpoints" {
 					continue
 				}
+				// TODO(michael) also exclude anything that has an ownerReference (that isn't "standard"?)
 
 				yamlBytes, err := k8syaml.Marshal(item.Object)
 				if err != nil {
