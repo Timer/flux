@@ -37,30 +37,6 @@ type extendedClient struct {
 	fluxHelmClient
 }
 
-// --- internal types for keeping track of syncing
-
-type metadata struct {
-	Name      string `yaml:"name"`
-	Namespace string `yaml:"namespace"`
-}
-
-type apiObject struct {
-	OriginalResource resource.Resource
-	Payload          []byte
-	Kind             string   `yaml:"kind"`
-	Metadata         metadata `yaml:"metadata"`
-}
-
-// A convenience for getting an minimal object from some bytes.
-func parseObj(def []byte) (*apiObject, error) {
-	obj := apiObject{}
-	return &obj, yaml.Unmarshal(def, &obj)
-}
-
-func (o *apiObject) hasNamespace() bool {
-	return o.Metadata.Namespace != ""
-}
-
 // --- add-ons
 
 // Kubernetes has a mechanism of "Add-ons", whereby manifest files
@@ -268,15 +244,9 @@ func (c *Cluster) Sync(spec cluster.SyncDef, resourceLabels map[string]policy.Up
 				continue
 			}
 
-			var obj *apiObject
 			resBytes, err := applyMetadata(stage.res, resourceLabels, resourcePolicyUpdates)
 			if err == nil {
-				obj, err = parseObj(resBytes)
-			}
-			if err == nil {
-				obj.OriginalResource = stage.res
-				obj.Payload = resBytes
-				cs.stage(stage.cmd, obj)
+				cs.stage(stage.cmd, stage.res, resBytes)
 			} else {
 				errs = append(errs, cluster.ResourceError{Resource: stage.res, Error: err})
 				break
