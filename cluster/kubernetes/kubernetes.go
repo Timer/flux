@@ -257,28 +257,27 @@ func (c *Cluster) Sync(spec cluster.SyncDef) error {
 	if c.GC {
 		orphanedResources := makeChangeSet()
 
-		fmt.Println("[stack-tracking] scanning for orphaned resources")
 		clusterResourceBytes, err := c.exportByLabel(fmt.Sprintf("%s%s", kresource.PolicyPrefix, policy.Stack))
 		if err != nil {
 			return errors.Wrap(err, "exporting resource defs from cluster for garbage collection")
 		}
 		clusterResources, err := kresource.ParseMultidoc(clusterResourceBytes, "exported")
 		if err != nil {
-			return errors.Wrap(err, "parsing exported resources post-sync")
+			return errors.Wrap(err, "parsing exported resources during garbage collection")
 		}
 
 		for resourceID, res := range clusterResources {
-			checksum := checksums[resourceID] // shall be "" if no such resource was applied earlier
-			if res.Policy().Has(policy.StackChecksum) {
-				val, _ := res.Policy().Get(policy.StackChecksum)
-				if val != checksum { // including `val != ""`, meaning no such resource in source
-					fmt.Printf("[stack-tracking] cluster resource=%s, out-of-date checksum=%s\n", resourceID, val)
-					orphanedResources.stage("delete", res, res.Bytes())
-				} else {
-					fmt.Printf("[stack-tracking] cluster resource ok: %s\n", resourceID)
-				}
-			} else {
-				fmt.Printf("warning: [stack-tracking] cluster resource=%s, missing policy=%s\n", resourceID, policy.StackChecksum)
+			expected := checksums[resourceID] // shall be "" if no such resource was applied earlier
+			actual, ok := res.Policy().Get(policy.StackChecksum)
+			switch {
+			case !ok:
+				stack, _ := res.Policy().Get(policy.Stack)
+				c.logger.Log("warning", "cluster resource has stack but no checksum; skipping", "resource", resourceID, "stack", stack)
+			case actual != expected: // including if checksum is ""
+				c.logger.Log("info", "cluster resource has out-of-date checksum; deleting", "resource", resourceID, "actual", actual, "expected", expected)
+				orphanedResources.stage("delete", res, res.Bytes())
+			default:
+				// all good; proceed
 			}
 		}
 
