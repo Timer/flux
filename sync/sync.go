@@ -3,7 +3,6 @@ package sync
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"fmt"
 	"sort"
 
 	"github.com/go-kit/kit/log"
@@ -14,23 +13,8 @@ import (
 	"github.com/weaveworks/flux/resource"
 )
 
-// Checksum generates a unique identifier for all apply actions in the stack
-func getStackChecksum(repoResources map[string]resource.Resource) string {
-	checksum := sha1.New()
-
-	sortedKeys := make([]string, 0, len(repoResources))
-	for resourceID := range repoResources {
-		sortedKeys = append(sortedKeys, resourceID)
-	}
-	sort.Strings(sortedKeys)
-	for resourceIDIndex := range sortedKeys {
-		checksum.Write(repoResources[sortedKeys[resourceIDIndex]].Bytes())
-	}
-	return hex.EncodeToString(checksum.Sum(nil))
-}
-
 // Sync synchronises the cluster to the files under a directory.
-func Sync(logger log.Logger, m cluster.Manifests, repoResources map[string]resource.Resource, clus cluster.Cluster, tracks, deletes bool) error {
+func Sync(logger log.Logger, m cluster.Manifests, repoResources map[string]resource.Resource, clus cluster.Cluster) error {
 	// Get a map of resources defined in the cluster
 	clusterBytes, err := clus.Export()
 
@@ -42,45 +26,51 @@ func Sync(logger log.Logger, m cluster.Manifests, repoResources map[string]resou
 		return errors.Wrap(err, "parsing exported resources")
 	}
 
-	sync := cluster.SyncDef{}
+	// TODO: multiple stack support. This will involve partitioning
+	// the resources into disjoint maps, then passing each to
+	// makeStack.
+	defaultStack := makeStack("default", repoResources, clusterResources, logger)
 
-	stacks := map[string]string{}
-	checksums := map[string]string{}
-	if tracks {
-		stackName := "default" // TODO: multiple stack support
-		stackChecksum := getStackChecksum(repoResources)
-
-		fmt.Printf("[stack-tracking] stack=%s, checksum=%s\n", stackName, stackChecksum)
-
-		for id := range repoResources {
-			fmt.Printf("[stack-tracking] resource=%s, applying checksum=%s\n", id, stackChecksum)
-			stacks[id] = stackName
-			checksums[id] = stackChecksum
-		}
-	}
-
-	for id, res := range repoResources {
-		prepareSyncApply(logger, clusterResources, id, res, &sync)
-	}
-
-	if err := clus.Sync(sync, stacks, checksums); err != nil {
+	sync := cluster.SyncDef{Stacks: []cluster.SyncStack{defaultStack}}
+	if err := clus.Sync(sync); err != nil {
 		return err
 	}
 	return nil
 }
 
-func prepareSyncApply(logger log.Logger, clusterResources map[string]resource.Resource, id string, res resource.Resource, sync *cluster.SyncDef) {
-	if res.Policy().Has(policy.Ignore) {
-		logger.Log("resource", res.ResourceID(), "ignore", "apply")
-		return
+func makeStack(name string, repoResources, clusterResources map[string]resource.Resource, logger log.Logger) cluster.SyncStack {
+	stack := cluster.SyncStack{Name: name}
+	var resources []resource.Resource
+
+	// To get a stable checksum, we have to sort the resources.
+	var ids []string
+	for id, _ := range repoResources {
+		ids = append(ids, id)
 	}
-	if cres, ok := clusterResources[id]; ok {
-		if cres.Policy().Has(policy.Ignore) {
+	sort.Strings(ids)
+
+	checksum := sha1.New()
+	for _, id := range ids {
+		res := repoResources[id]
+		if res.Policy().Has(policy.Ignore) {
 			logger.Log("resource", res.ResourceID(), "ignore", "apply")
-			return
+			continue
 		}
+		// It may be ignored in the cluster, but it isn't in the repo;
+		// and we don't want what happens in the cluster to affect the
+		// checksum.
+		checksum.Write(res.Bytes())
+
+		if cres, ok := clusterResources[id]; ok {
+			if cres.Policy().Has(policy.Ignore) {
+				logger.Log("resource", res.ResourceID(), "ignore", "apply")
+				continue
+			}
+		}
+		resources = append(resources, res)
 	}
-	sync.Actions = append(sync.Actions, cluster.SyncAction{
-		Apply: res,
-	})
+
+	stack.Resources = resources
+	stack.Checksum = hex.EncodeToString(checksum.Sum(nil))
+	return stack
 }

@@ -75,6 +75,9 @@ func isAddon(obj k8sObject) bool {
 // Cluster is a handle to a Kubernetes API server.
 // (Typically, this code is deployed into the same cluster.)
 type Cluster struct {
+	// Do garbage collection when syncing resources
+	GC bool
+
 	client     extendedClient
 	applier    Applier
 	version    string // string response for the version command.
@@ -219,31 +222,25 @@ func applyMetadata(res resource.Resource, stack, checksum string) ([]byte, error
 }
 
 // Sync performs the given actions on resources. Operations are
-// asynchronous, but serialised.
-func (c *Cluster) Sync(spec cluster.SyncDef, stacks map[string]string, checksums map[string]string) error {
+// asynchronous (applications may take a while to be processed), but
+// serialised.
+func (c *Cluster) Sync(spec cluster.SyncDef) error {
 	logger := log.With(c.logger, "method", "Sync")
+
+	// Keep track of the checksum each resource gets, so we can
+	// compare them during garbage collection.
+	checksums := map[string]string{}
 
 	cs := makeChangeSet()
 	var errs cluster.SyncError
-	for _, action := range spec.Actions {
-		stages := []struct {
-			res resource.Resource
-			cmd string
-		}{
-			{action.Delete, "delete"},
-			{action.Apply, "apply"},
-		}
-		for _, stage := range stages {
-			if stage.res == nil {
-				continue
-			}
-
-			id := stage.res.ResourceID().String()
-			resBytes, err := applyMetadata(stage.res, stacks[id], checksums[id])
+	for _, stack := range spec.Stacks {
+		for _, res := range stack.Resources {
+			resBytes, err := applyMetadata(res, stack.Name, stack.Checksum)
 			if err == nil {
-				cs.stage(stage.cmd, stage.res, resBytes)
+				checksums[res.ResourceID().String()] = stack.Checksum
+				cs.stage("apply", res, resBytes)
 			} else {
-				errs = append(errs, cluster.ResourceError{Resource: stage.res, Error: err})
+				errs = append(errs, cluster.ResourceError{Resource: res, Error: err})
 				break
 			}
 		}
@@ -257,9 +254,7 @@ func (c *Cluster) Sync(spec cluster.SyncDef, stacks map[string]string, checksums
 	}
 	c.muSyncErrors.RUnlock()
 
-	// FIXME(michael): pass this through in the SyncDef maybe?
-	tracks := true
-	if tracks {
+	if c.GC {
 		orphanedResources := makeChangeSet()
 
 		fmt.Println("[stack-tracking] scanning for orphaned resources")
@@ -273,11 +268,11 @@ func (c *Cluster) Sync(spec cluster.SyncDef, stacks map[string]string, checksums
 		}
 
 		for resourceID, res := range clusterResources {
-			checksum := checksums[resourceID]
+			checksum := checksums[resourceID] // shall be "" if no such resource was applied earlier
 			if res.Policy().Has(policy.StackChecksum) {
 				val, _ := res.Policy().Get(policy.StackChecksum)
-				if val != checksum {
-					fmt.Printf("[stack-tracking] cluster resource=%s, invalid checksum=%s\n", resourceID, val)
+				if val != checksum { // including `val != ""`, meaning no such resource in source
+					fmt.Printf("[stack-tracking] cluster resource=%s, out-of-date checksum=%s\n", resourceID, val)
 					orphanedResources.stage("delete", res, res.Bytes())
 				} else {
 					fmt.Printf("[stack-tracking] cluster resource ok: %s\n", resourceID)

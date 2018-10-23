@@ -97,6 +97,7 @@ func main() {
 		gitTimeout      = fs.Duration("git-timeout", 20*time.Second, "duration after which git operations time out")
 		// syncing
 		syncInterval = fs.Duration("sync-interval", 5*time.Minute, "apply config in git to cluster at least this often, even if there are no new commits")
+		syncGC       = fs.Bool("sync-garbage-collection", false, "experimental; delete resources that are no longer in the git repo")
 		// registry
 		memcachedHostname    = fs.String("memcached-hostname", "memcached", "Hostname for memcached service.")
 		memcachedTimeout     = fs.Duration("memcached-timeout", time.Second, "Maximum time to wait before giving up on memcached requests.")
@@ -260,6 +261,7 @@ func main() {
 
 		kubectlApplier := kubernetes.NewKubectl(kubectl, restClientConfig)
 		k8sInst := kubernetes.NewCluster(clientset, dynamicClientset, ifclientset, kubectlApplier, sshKeyRing, logger, *k8sNamespaceWhitelist)
+		k8sInst.GC = *syncGC
 
 		if err := k8sInst.Ping(); err != nil {
 			logger.Log("ping", err)
