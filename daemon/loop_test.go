@@ -21,7 +21,6 @@ import (
 	"github.com/weaveworks/flux/git"
 	"github.com/weaveworks/flux/git/gittest"
 	"github.com/weaveworks/flux/job"
-	"github.com/weaveworks/flux/policy"
 	registryMock "github.com/weaveworks/flux/registry/mock"
 	"github.com/weaveworks/flux/resource"
 )
@@ -101,7 +100,7 @@ func TestPullAndSync_InitialSync(t *testing.T) {
 		expectedResourceIDs = append(expectedResourceIDs, id)
 	}
 	expectedResourceIDs.Sort()
-	k8s.SyncFunc = func(def cluster.SyncDef, l map[string]policy.Update, p map[string]policy.Update) error {
+	k8s.SyncFunc = func(def cluster.SyncDef) error {
 		syncCalled++
 		syncDef = &def
 		return nil
@@ -114,8 +113,6 @@ func TestPullAndSync_InitialSync(t *testing.T) {
 		t.Errorf("Sync was not called once, was called %d times", syncCalled)
 	} else if syncDef == nil {
 		t.Errorf("Sync was called with a nil syncDef")
-	} else if len(syncDef.Actions) != len(expectedResourceIDs) {
-		t.Errorf("Sync was not called with %d actions (resources), was called with %d", len(expectedResourceIDs), len(syncDef.Actions))
 	}
 
 	// The emitted event has all service ids
@@ -170,7 +167,7 @@ func TestDoSync_NoNewCommits(t *testing.T) {
 		expectedResourceIDs = append(expectedResourceIDs, id)
 	}
 	expectedResourceIDs.Sort()
-	k8s.SyncFunc = func(def cluster.SyncDef, l map[string]policy.Update, p map[string]policy.Update) error {
+	k8s.SyncFunc = func(def cluster.SyncDef) error {
 		syncCalled++
 		syncDef = &def
 		return nil
@@ -185,8 +182,6 @@ func TestDoSync_NoNewCommits(t *testing.T) {
 		t.Errorf("Sync was not called once, was called %d times", syncCalled)
 	} else if syncDef == nil {
 		t.Errorf("Sync was called with a nil syncDef")
-	} else if len(syncDef.Actions) != len(expectedResourceIDs) {
-		t.Errorf("Sync was not called with %d actions, was called with: %d", len(expectedResourceIDs), len(syncDef.Actions))
 	}
 
 	// The emitted event has no service ids
@@ -264,7 +259,7 @@ func TestDoSync_WithNewCommit(t *testing.T) {
 		expectedResourceIDs = append(expectedResourceIDs, id)
 	}
 	expectedResourceIDs.Sort()
-	k8s.SyncFunc = func(def cluster.SyncDef, l map[string]policy.Update, p map[string]policy.Update) error {
+	k8s.SyncFunc = func(def cluster.SyncDef) error {
 		syncCalled++
 		syncDef = &def
 		return nil
@@ -277,8 +272,6 @@ func TestDoSync_WithNewCommit(t *testing.T) {
 		t.Errorf("Sync was not called once, was called %d times", syncCalled)
 	} else if syncDef == nil {
 		t.Errorf("Sync was called with a nil syncDef")
-	} else if len(syncDef.Actions) != len(expectedResourceIDs) {
-		t.Errorf("Sync was not called with %d actions, was called with %d", len(expectedResourceIDs), len(syncDef.Actions))
 	}
 
 	// The emitted event has no service ids

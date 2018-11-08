@@ -63,7 +63,7 @@ func TestMergeCredentials(t *testing.T) {
 		makeServiceAccount(ns, saName, []string{secretName2}),
 		makeImagePullSecret(ns, secretName1, "docker.io"),
 		makeImagePullSecret(ns, secretName2, "quay.io"))
-	client := extendedClient{clientset, nil}
+	client := extendedClient{clientset, nil, nil}
 
 	creds := registry.ImageCreds{}
 	mergeCredentials(noopLog, client, ns, spec, creds, make(map[string]registry.Credentials))

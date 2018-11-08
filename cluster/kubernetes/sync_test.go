@@ -9,6 +9,7 @@ import (
 	"github.com/weaveworks/flux"
 	"github.com/weaveworks/flux/cluster"
 	"github.com/weaveworks/flux/policy"
+	"github.com/weaveworks/flux/resource"
 )
 
 type mockApplier struct {
@@ -56,7 +57,7 @@ func setup(t *testing.T) (*Cluster, *mockApplier) {
 
 func TestSyncNop(t *testing.T) {
 	kube, mock := setup(t)
-	if err := kube.Sync(cluster.SyncDef{}, map[string]policy.Update{}, map[string]policy.Update{}); err != nil {
+	if err := kube.Sync(cluster.SyncDef{}); err != nil {
 		t.Errorf("%#v", err)
 	}
 	if mock.commandRun {
@@ -67,12 +68,16 @@ func TestSyncNop(t *testing.T) {
 func TestSyncMalformed(t *testing.T) {
 	kube, mock := setup(t)
 	err := kube.Sync(cluster.SyncDef{
-		Actions: []cluster.SyncAction{
-			cluster.SyncAction{
-				Apply: rsc{"default:deployment/trash", []byte("garbage")},
+		Stacks: []cluster.SyncStack{
+			{
+				Name:     "malformed",
+				Checksum: "unimportant",
+				Resources: []resource.Resource{
+					rsc{"default:deployment/trash", []byte("garbage")},
+				},
 			},
 		},
-	}, map[string]policy.Update{}, map[string]policy.Update{})
+	})
 	if err == nil {
 		t.Error("expected error because malformed resource def, but got nil")
 	}
@@ -81,32 +86,22 @@ func TestSyncMalformed(t *testing.T) {
 	}
 }
 
+func mkResource(kind, name string) rsc {
+	return rsc{id: "default:" + kind + "/" + name}
+}
+
 // TestApplyOrder checks that applyOrder works as expected.
 func TestApplyOrder(t *testing.T) {
-	objs := []*apiObject{
-		{
-			Kind: "Deployment",
-			Metadata: metadata{
-				Name: "deploy",
-			},
-		},
-		{
-			Kind: "Secret",
-			Metadata: metadata{
-				Name: "secret",
-			},
-		},
-		{
-			Kind: "Namespace",
-			Metadata: metadata{
-				Name: "namespace",
-			},
-		},
+	objs := []applyObject{
+		{OriginalResource: mkResource("Deployment", "deploy")},
+		{OriginalResource: mkResource("Secret", "secret")},
+		{OriginalResource: mkResource("Namespace", "namespace")},
 	}
 	sort.Sort(applyOrder(objs))
 	for i, name := range []string{"namespace", "secret", "deploy"} {
-		if objs[i].Metadata.Name != name {
-			t.Errorf("Expected %q at position %d, got %q", name, i, objs[i].Metadata.Name)
+		_, _, objName := objs[i].OriginalResource.ResourceID().Components()
+		if objName != name {
+			t.Errorf("Expected %q at position %d, got %q", name, i, objName)
 		}
 	}
 }
