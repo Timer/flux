@@ -287,8 +287,8 @@ func (c *Cluster) Sync(spec cluster.SyncDef) error {
 	}
 
 	// If `nil`, errs is a cluster.SyncError(nil) rather than error(nil), so it cannot be returned directly.
-	if errs != nil {
-		return errs
+	if errs == nil {
+		return nil
 	}
 
 	// It is expected that Cluster.Sync is invoked with *all* resources.
