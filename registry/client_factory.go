@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/url"
 	"sync"
@@ -40,7 +41,23 @@ func (t *logging) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func (f *RemoteClientFactory) ClientFor(repo image.CanonicalName, creds Credentials) (Client, error) {
-	tx := f.Limiters.RoundTripper(http.DefaultTransport, repo.Domain)
+	scheme := "https"
+	for _, h := range f.InsecureHosts {
+		if repo.Domain == h {
+			scheme = "http"
+			break
+		}
+	}
+
+	var tr http.RoundTripper
+	if scheme == "http" {
+		tr = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	} else {
+		tr = http.DefaultTransport
+	}
+	tx := f.Limiters.RoundTripper(tr, repo.Domain)
 	if f.Trace {
 		tx = &logging{f.Logger, tx}
 	}
@@ -51,13 +68,6 @@ func (f *RemoteClientFactory) ClientFor(repo image.CanonicalName, creds Credenti
 	}
 	manager := f.challengeManager
 	f.mu.Unlock()
-
-	scheme := "https"
-	for _, h := range f.InsecureHosts {
-		if repo.Domain == h {
-			scheme = "http"
-		}
-	}
 
 	registryURL := url.URL{
 		Scheme: scheme,
