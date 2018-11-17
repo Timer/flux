@@ -1,15 +1,105 @@
 This is the changelog for the Flux daemon; the changelog for the Helm
 operator is in [./CHANGELOG-helmop.md](./CHANGELOG-helmop.md).
 
-## 1.x.x (unreleased)
+## 1.8.1 (2018-10-15)
+
+This release completes the support for `HelmRelease` resources as used
+by the Helm operator from v0.5 onwards.
+
+**Note** This release bakes in `kubectl` v.1.11.3, while previous
+releases used v1.9.0. Officially, `kubectl` is compatible with one
+minor version before and one minor version after its own, i.e., now
+v1.10-1.12. In practice, it may work fine for most purposes in a wider
+range. If you run into difficulties relating to the `kubectl` version,
+[contact us](README.md#help).
 
 ### Fixes
 
-- ..
+- Deal correctly with port numbers in images, when updating
+  (Flux)HelmRelease resources
+  [weaveworks/flux#1507](https://github.com/weaveworks/flux/pull/1507)
+- Many corrections and updates to the documentation
+  [weaveworks/flux#1506](https://github.com/weaveworks/flux/pull/1506),
+  [weaveworks/flux#1502](https://github.com/weaveworks/flux/pull/1502),
+  [weaveworks/flux#1501](https://github.com/weaveworks/flux/pull/1501),
+  [weaveworks/flux#1498](https://github.com/weaveworks/flux/pull/1498),
+  [weaveworks/flux#1492](https://github.com/weaveworks/flux/pull/1492),
+  [weaveworks/flux#1490](https://github.com/weaveworks/flux/pull/1490),
+  [weaveworks/flux#1488](https://github.com/weaveworks/flux/pull/1488),
+  [weaveworks/flux#1489](https://github.com/weaveworks/flux/pull/1489)
+- The metrics exported by the Flux daemon are now listed
+  [weaveworks/flux#1483](https://github.com/weaveworks/flux/pull/1483)
 
 ### Improvements
 
-- ..
+- `HelmRelease` resources are treated as workloads, so they can be
+  automated, and updated with `fluxctl release ...`
+  [weaveworks/flux#1382](https://github.com/weaveworks/flux/pull/1382)
+- Container-by-container releases, as used by `fluxctl --interactive`,
+  now post detailed notifications to Weave Cloud
+  [weaveworks/flux#1472](https://github.com/weaveworks/flux/pull/1472)
+  and have better commit messages
+  [weaveworks/flux#1479](https://github.com/weaveworks/flux/pull/1479)
+- Errors encountered when applying manifests are reported in the
+  ListControllers API (and may appear, in the future, in the `fluxctl
+  release` output)
+  [weaveworks/flux#1410](https://github.com/weaveworks/flux/pull/1410)
+
+### Thanks
+
+Thanks goes to @Ashiroq, @JimPruitt, @MansM, @Morriz, @Smirl, @Timer,
+@aytekk, @bzon, @camilb, @claude-leveille, @demikl, @dholbach,
+@endrec, @foot, @hiddeco, @jrcole2884, @lelenanam, @marcusolsson,
+@mellena1, @montyz, @olib963, @rade, @rndstr, @sfitts, @squaremo,
+@stefanprodan, @whereismyjetpack for their contributions.
+
+## 1.8.0 (2018-10-25)
+
+This release includes a change to how image registries are scanned for
+metadata, which should reduce the amount of polling, while being
+sensitive to image metadata that changes frequently, as well as
+respecting throttling.
+
+### Fixes
+
+- Better chance of a graceful shutdown on signals
+  [weaveworks/flux#1438](https://github.com/weaveworks/flux/pull/1438)
+- Take more notice of possible errors
+  [weaveworks/flux#1432](https://github.com/weaveworks/flux/pull/1432)
+  and
+  [weaveworks/flux#1433](https://github.com/weaveworks/flux/pull/1433)
+- Report the problematic string when failing to parse an image ref
+  [weaveworks/flux#1407](https://github.com/weaveworks/flux/pull/1433)
+
+### Improvements
+
+- Apply CustomResourceDefinition manifests ahead of (most) other kinds
+  of resource, since there will likely be other things that depend on
+  the definition (e.g., the custom resources themselves)
+  [weaveworks/flux#1429](https://github.com/weaveworks/flux/pull/1429)
+- Add `--git-timeout` flag for setting the default timeout for git
+  operations (useful e.g., if you know `git clone` will take a long
+  time)
+  [weaveworks/flux#1416](https://github.com/weaveworks/flux/pull/1416)
+- `fluxctl list-controllers` now has an alias `fluxctl
+  list-workloads` [weaveworks/flux#1425](https://github.com/weaveworks/flux/pull/1425)
+- Adapt the sampling rate for image metadata, and back off when
+  throttled
+  [weaveworks/flux#1354](https://github.com/weaveworks/flux/pull/1354)
+- The detailed rollout status of workloads is now reported in the API
+  (NB this is not yet used in the command-line tool)
+  [weaveworks/flux#1380](https://github.com/weaveworks/flux/pull/1380)
+
+### Thanks
+
+A warm thank-you to @AugustasV, @MansM, @Morriz, @MrYadro, @Timer,
+@aaron-trout, @bhavin192, @brandon-bethke-neudesic, @brantb, @bzon,
+@dbluxo, @dholbach, @dlespiau, @endrec, @hiddeco, @justdavid,
+@justinbarrick, @kozejonaz, @lelenanam, @leoblanc, @marcemq,
+@marcusolsson, @mellena1, @mt-inside, @ncabatoff, @pcfens, @rade,
+@rndstr, @sc250024, @sfrique, @skurtzemann, @squaremo, @stefanprodan,
+@stephenmoloney, @timthelion, @tlvu, @whereismyjetpack, @white-hat,
+@wstrange for your contributions.
 
 ## 1.7.1 (2018-09-26)
 
